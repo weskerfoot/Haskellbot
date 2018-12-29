@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import Lib
@@ -9,6 +11,22 @@ import Network.Socket hiding (recv)
 import Network.Socket.ByteString as S
 import qualified Data.ByteString.Lazy as L
 import Control.Concurrent (threadDelay, forkIO)
+import Data.Text (isInfixOf)
+
+getNick (Message source _ _) = maybe "" id (sourceNick <$> source)
+
+react sock msg = do
+  case (ircCommand msg) of
+    "PING" -> sendMany sock (buildCommand <$> [pong (head $ ircCommandArgs msg)])
+    "PRIVMSG" -> if ("crapbot" `isInfixOf` (head $ tail $ ircCommandArgs msg)) then
+                        sendMany sock
+                          (buildCommand <$>
+                            [privmsg (head $ ircCommandArgs msg) (mconcat ["Hello there ", getNick msg, "!"])])
+                else
+                  return ()
+
+    command -> print command
+  return ()
 
 channel = "#thisisatestwhatever"
 
@@ -24,7 +42,11 @@ getIRCSock addr = socket (addrFamily addr) Stream defaultProtocol
 
 recvLoop sock = do
   msg <- recv sock 4096
-  print $ runParseMessage msg
+  case runParseMessage msg of
+    Left _ -> return ()
+    Right msg -> do
+                  _ <- react sock msg
+                  print msg
   threadDelay 1000000
   recvLoop sock
 
@@ -36,4 +58,7 @@ sendIRCConnect host = do
   threadDelay 1000000
   sendMany sock (buildCommand <$> [userCmd, nickCmd, joinCmd, initMsgCmd])
 
-main = undefined
+main = do
+  _ <- sendIRCConnect "irc.freenode.org"
+  _ <- getLine
+  return ()
